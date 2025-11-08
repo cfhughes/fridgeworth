@@ -1,3 +1,4 @@
 sqlite-vec
 fastembed
 fastapi
+pydantic

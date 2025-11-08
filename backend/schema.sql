@@ -1,6 +1,9 @@
 PRAGMA FOREIGN_KEYS=ON;
 
-CREATE TABLE pantry (
+/*
+ * Pantry items
+ */
+CREATE TABLE IF NOT EXISTS pantry (
     rowid INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
     quantity INTEGER NOT NULL,
@@ -8,23 +11,38 @@ CREATE TABLE pantry (
     bought_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE trash (
+/*
+ * Trash items
+ */
+CREATE TABLE IF NOT EXISTS trash (
     rowid INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
-    quantity INTEGER NOT NULL,
-    item_id INTEGER NOT NULL FOREIGN KEY REFERENCES pantry(rowid),
+    item_id INTEGER NOT NULL REFERENCES pantry(rowid),
     quantity INTEGER NOT NULL,
     trashed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE edges (
-    trash_id INTEGER NOT NULL FOREIGN KEY REFERENCES trash(rowid),
-    item_id INTEGER NOT NULL FOREIGN KEY REFERENCES pantry(rowid),
+/*
+ * Edges between trash and pantry items
+ */
+CREATE TABLE IF NOT EXISTS edges (
+    trash_id INTEGER NOT NULL REFERENCES trash(rowid),
+    item_id INTEGER NOT NULL REFERENCES pantry(rowid),
     probability REAL NOT NULL,
     
     PRIMARY KEY (trash_id, item_id)
 );
 
-CREATE VIRTUAL TABLE pantry_vec using vec0(
+/*
+ * Items considered out of the pantry
+ */
+CREATE TABLE IF NOT EXISTS used (
+    item_id INTEGER NOT NULL REFERENCES pantry(rowid)
+);
+
+/*
+ * VSS index for connecting trash to pantry entries
+ */
+CREATE VIRTUAL TABLE IF NOT EXISTS pantry_vec using vec0(
   embedding float[32]
 );

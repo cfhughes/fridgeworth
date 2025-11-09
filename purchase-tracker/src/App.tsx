@@ -452,7 +452,7 @@ Only include actual food items that expire (not paper products, cleaning supplie
             <div className="flex items-center gap-2">
               <Leaf className="text-green-600" size={32} />
               <div>
-                <h1 className="text-2xl font-bold text-gray-800">FoodSaver</h1>
+                <h1 className="text-2xl font-bold text-gray-800">Fridgeworth</h1>
                 <p className="text-sm text-gray-500">Track. Save. Sustain.</p>
               </div>
             </div>

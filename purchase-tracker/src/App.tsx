@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AlertCircle, Trash2, ShoppingCart, TrendingDown, Leaf, DollarSign, Plus, X, Calendar, Package, Camera, Check } from 'lucide-react';
-import "./index.css"
-
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 
 export default function FoodWasteTracker() {
   const [view, setView] = useState('inventory');
@@ -277,6 +276,36 @@ export default function FoodWasteTracker() {
 
   const urgentItems = sortedItems.filter(item => getDaysUntilExpiration(item.expirationDate) <= 2);
 
+  // Prepare chart data
+  const getChartData = () => {
+    const allEntries = [
+      ...wasteLog.map(w => ({ ...w, type: 'waste' })),
+      ...consumedLog.map(c => ({ ...c, type: 'consumed' }))
+    ].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    if (allEntries.length === 0) return [];
+
+    // Group by date
+    const dateMap = {};
+    allEntries.forEach(entry => {
+      const date = new Date(entry.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      if (!dateMap[date]) {
+        dateMap[date] = { date, waste: 0, consumed: 0, wasteCost: 0, savedCost: 0 };
+      }
+      if (entry.type === 'waste') {
+        dateMap[date].waste += 1;
+        dateMap[date].wasteCost += entry.estimatedCost;
+      } else {
+        dateMap[date].consumed += 1;
+        dateMap[date].savedCost += entry.savedCost;
+      }
+    });
+
+    return Object.values(dateMap);
+  };
+
+  const chartData = getChartData();
+
   // Update Penny's message based on urgent items
   useEffect(() => {
     if (urgentItems.length > 0 && view === 'inventory') {
@@ -288,7 +317,7 @@ export default function FoodWasteTracker() {
     }
   }, [urgentItems.length, view, items.length]);
 
-  return (<>
+  return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-50">
       {/* Header */}
       <div className="bg-white shadow-sm border-b">
@@ -630,6 +659,41 @@ export default function FoodWasteTracker() {
                   <div className="text-right">
                     <p className="text-sm text-gray-600">{itemsConsumed} eaten / {itemsConsumed + itemsWasted} total</p>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* Charts */}
+            {chartData.length > 0 && (
+              <div className="space-y-6">
+                <div className="bg-white rounded-lg shadow-sm border p-6">
+                  <h3 className="font-semibold text-gray-800 mb-4">Items Over Time</h3>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart data={chartData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="date" />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Line type="monotone" dataKey="consumed" stroke="#10b981" strokeWidth={2} name="Items Eaten" />
+                      <Line type="monotone" dataKey="waste" stroke="#ef4444" strokeWidth={2} name="Items Wasted" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div className="bg-white rounded-lg shadow-sm border p-6">
+                  <h3 className="font-semibold text-gray-800 mb-4">Money Impact Over Time</h3>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={chartData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="date" />
+                      <YAxis />
+                      <Tooltip formatter={(value) => `${value.toFixed(2)}`} />
+                      <Legend />
+                      <Bar dataKey="savedCost" fill="#10b981" name="Money Saved" />
+                      <Bar dataKey="wasteCost" fill="#ef4444" name="Money Wasted" />
+                    </BarChart>
+                  </ResponsiveContainer>
                 </div>
               </div>
             )}
@@ -1006,6 +1070,5 @@ export default function FoodWasteTracker() {
         </div>
       )}
     </div>
-  </>
   );
 }

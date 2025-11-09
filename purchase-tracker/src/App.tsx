@@ -15,6 +15,8 @@ export default function FoodWasteTracker() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [scannedItems, setScannedItems] = useState([]);
   const [consumedLog, setConsumedLog] = useState([]);
+  const [receiptImage, setReceiptImage] = useState(null);
+  const [uploadError, setUploadError] = useState(null);
 
   const [newItem, setNewItem] = useState({
     name: '',
@@ -188,6 +190,128 @@ export default function FoodWasteTracker() {
     }, 2500);
   };
 
+  const handleImageUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    // Check file type
+    if (!file.type.startsWith('image/')) {
+      setUploadError('Please upload an image file');
+      return;
+    }
+
+    // Check file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setUploadError('Image must be less than 5MB');
+      return;
+    }
+
+    setUploadError(null);
+    setIsProcessing(true);
+    setPennyMessage(getPennyMessage('scanning'));
+
+    try {
+      // Convert image to base64
+      const base64Image = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      setReceiptImage(URL.createObjectURL(file));
+
+      // Call Claude API to analyze receipt
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1000,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'image',
+                  source: {
+                    type: 'base64',
+                    media_type: file.type,
+                    data: base64Image
+                  }
+                },
+                {
+                  type: 'text',
+                  text: `Analyze this grocery receipt and extract the food items. For each food item, provide:
+1. Item name
+2. Category (one of: produce, dairy, meat, pantry, frozen, other)
+3. Estimated quantity (as a number)
+4. Unit (one of: items, lbs, oz, kg, g)
+5. Estimated expiration date from today (as days from now)
+
+Return ONLY a JSON array with no preamble or explanation. Format:
+[
+  {
+    "name": "Item Name",
+    "category": "produce",
+    "quantity": 1,
+    "unit": "items",
+    "daysUntilExpiration": 7
+  }
+]
+
+Only include actual food items that expire (not paper products, cleaning supplies, etc.). If you cannot read the receipt clearly, return an empty array.`
+                }
+              ]
+            }
+          ]
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to analyze receipt');
+      }
+
+      const data = await response.json();
+      const textContent = data.content.find(item => item.type === 'text')?.text || '[]';
+
+      // Parse the JSON response
+      let extractedItems = [];
+      try {
+        const cleanedText = textContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        extractedItems = JSON.parse(cleanedText);
+      } catch (e) {
+        console.error('Failed to parse response:', e);
+        setUploadError('Could not extract items from receipt. Please try a clearer image.');
+        setIsProcessing(false);
+        return;
+      }
+
+      // Convert to our format
+      const today = new Date();
+      const formattedItems = extractedItems.map(item => ({
+        name: item.name,
+        category: item.category,
+        quantity: item.quantity,
+        unit: item.unit,
+        expirationDate: new Date(today.getTime() + item.daysUntilExpiration * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .split('T')[0]
+      }));
+
+      setScannedItems(formattedItems);
+      setPennyMessage("Wow! I found those items on your receipt! 📸");
+      setIsProcessing(false);
+
+    } catch (error) {
+      console.error('Error processing receipt:', error);
+      setUploadError('Failed to process receipt. Please try again.');
+      setIsProcessing(false);
+    }
+  };
+
   const addScannedItems = () => {
     const newItems = scannedItems.map(item => ({
       ...item,
@@ -200,6 +324,8 @@ export default function FoodWasteTracker() {
     setPennyMessage("Wow! All those items added in seconds! You're a pro! 🚀");
     setShowReceiptScanner(false);
     setScannedItems([]);
+    setReceiptImage(null);
+    setUploadError(null);
   };
 
   const markAsConsumed = () => {
@@ -977,7 +1103,9 @@ export default function FoodWasteTracker() {
                 onClick={() => {
                   setShowReceiptScanner(false);
                   setScannedItems([]);
+                  setReceiptImage(null);
                   setIsProcessing(false);
+                  setUploadError(null);
                 }}
                 className="text-gray-500 hover:text-gray-700"
               >
@@ -987,24 +1115,56 @@ export default function FoodWasteTracker() {
 
             {!isProcessing && scannedItems.length === 0 && (
               <div>
-                <div className="bg-gray-100 rounded-lg aspect-[4/3] flex items-center justify-center mb-4 border-2 border-dashed border-gray-300">
-                  <div className="text-center">
-                    <Camera className="mx-auto text-gray-400 mb-3" size={64} />
-                    <p className="text-gray-600 mb-4">Position your receipt in the frame</p>
-                    <div className="relative w-64 h-48 mx-auto border-4 border-blue-500 rounded-lg">
-                      <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-blue-500"></div>
-                      <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-blue-500"></div>
-                      <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-blue-500"></div>
-                      <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-blue-500"></div>
+                {uploadError && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
+                    <p className="text-red-800 text-sm">{uploadError}</p>
+                  </div>
+                )}
+
+                <div className="bg-gray-100 rounded-lg aspect-[4/3] flex items-center justify-center mb-4 border-2 border-dashed border-gray-300 relative overflow-hidden">
+                  {receiptImage ? (
+                    <img src={receiptImage} alt="Receipt" className="w-full h-full object-contain" />
+                  ) : (
+                    <div className="text-center">
+                      <Camera className="mx-auto text-gray-400 mb-3" size={64} />
+                      <p className="text-gray-600 mb-4">Upload a photo of your receipt</p>
+                      <p className="text-sm text-gray-500">Supports JPG, PNG (max 5MB)</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-3">
+                  <label className="block">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      className="block w-full text-sm text-gray-500
+                        file:mr-4 file:py-2 file:px-4
+                        file:rounded-lg file:border-0
+                        file:text-sm file:font-semibold
+                        file:bg-blue-50 file:text-blue-700
+                        hover:file:bg-blue-100
+                        cursor-pointer"
+                    />
+                  </label>
+
+                  <div className="relative">
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="w-full border-t border-gray-300"></div>
+                    </div>
+                    <div className="relative flex justify-center text-sm">
+                      <span className="px-2 bg-white text-gray-500">or try demo</span>
                     </div>
                   </div>
+
+                  <button
+                    onClick={simulateReceiptScan}
+                    className="w-full bg-gray-100 text-gray-700 px-6 py-3 rounded-lg hover:bg-gray-200 transition text-sm font-medium"
+                  >
+                    Use Sample Receipt (Demo)
+                  </button>
                 </div>
-                <button
-                  onClick={simulateReceiptScan}
-                  className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition text-lg font-semibold"
-                >
-                  Capture Receipt
-                </button>
               </div>
             )}
 
@@ -1015,7 +1175,7 @@ export default function FoodWasteTracker() {
                   <div className="absolute inset-0 border-4 border-blue-600 rounded-full border-t-transparent animate-spin"></div>
                 </div>
                 <h3 className="text-xl font-semibold text-gray-800 mb-2">Processing Receipt...</h3>
-                <p className="text-gray-600">Using AI to detect items and expiration dates</p>
+                <p className="text-gray-600">Using AI to detect items and estimate expiration dates</p>
               </div>
             )}
 
@@ -1024,7 +1184,7 @@ export default function FoodWasteTracker() {
                 <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
                   <div className="flex items-center gap-2 text-green-800">
                     <AlertCircle size={20} />
-                    <span className="font-semibold">Found {scannedItems.length} items on your receipt!</span>
+                    <span className="font-semibold">Found {scannedItems.length} food items on your receipt!</span>
                   </div>
                 </div>
 
@@ -1052,6 +1212,8 @@ export default function FoodWasteTracker() {
                     onClick={() => {
                       setShowReceiptScanner(false);
                       setScannedItems([]);
+                      setReceiptImage(null);
+                      setUploadError(null);
                     }}
                     className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition"
                   >
